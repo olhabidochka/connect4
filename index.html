@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect 4</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<main>
+  <h1>Connect 4</h1>
+  <p class="subtitle">Ви граєте червоними й ходите першими. Клікніть колонку або натисніть 1–7.</p>
+
+  <div class="toolbar">
+    <button class="primary" id="new-game">Нова гра</button>
+    <label>Глибина ШІ
+      <select id="depth">
+        <option value="4">4 (швидше)</option>
+        <option value="5" selected>5 (сильніше)</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="status" role="status" aria-live="polite"></div>
+
+  <div class="board-wrap"><div class="columns" id="columns"></div></div>
+  <div class="labels" aria-hidden="true">
+    <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span>
+  </div>
+
+  <div class="info">
+    <span><span class="dot human"></span>Людина</span>
+    <span><span class="dot ai"></span>ШІ (Minimax + Alpha-Beta)</span>
+    <span id="stats"></span>
+  </div>
+</main>
+
+<script>
+const ROWS = 6, COLS = 7, HUMAN = 1, AI = 2;
+const columnsEl = document.getElementById("columns");
+const statusEl = document.getElementById("status");
+const statsEl = document.getElementById("stats");
+const depthEl = document.getElementById("depth");
+let busy = false;          
+let gameOver = false;
+let cells = [];            
+
+function buildBoard() {
+  columnsEl.innerHTML = "";
+  cells = Array.from({ length: ROWS }, () => []);
+  for (let c = 0; c < COLS; c++) {
+    const btn = document.createElement("button");
+    btn.className = "column";
+    btn.setAttribute("aria-label", "Колонка " + (c + 1));
+    btn.addEventListener("click", () => makeMove(c));
+    for (let r = 0; r < ROWS; r++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      btn.appendChild(cell);
+      cells[r][c] = cell;
+    }
+    columnsEl.appendChild(btn);
+  }
+}
+
+function paintPiece(row, col, player, animate) {
+  const cell = cells[row][col];
+  cell.className = "cell " + (player === HUMAN ? "human" : "ai") + (animate ? " new" : "");
+}
+
+function renderBoard(board) {
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      cells[r][c].className = "cell" + (board[r][c] === HUMAN ? " human" : board[r][c] === AI ? " ai" : "");
+}
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ""; }
+
+function updateColumns(validMoves) {
+  [...columnsEl.children].forEach((btn, c) => {
+    btn.disabled = busy || gameOver || !validMoves.includes(c);
+  });
+}
+
+function finish(state) {
+  gameOver = state.game_over;
+  if (state.win_line) state.win_line.forEach(([r, c]) => cells[r][c].classList.add("win"));
+  if (state.winner === HUMAN) setStatus("Ви перемогли!", "win");
+  else if (state.winner === AI) setStatus("ШІ переміг.", "lose");
+  else if (state.game_over) setStatus("Нічия: поле заповнене.");
+  else setStatus("Ваш хід");
+  busy = false;
+  updateColumns(state.valid_moves);
+}
+
+async function newGame() {
+  const res = await fetch("/api/new", { method: "POST", body: "{}" });
+  const state = await res.json();
+  busy = false; gameOver = false;
+  renderBoard(state.board);
+  statsEl.textContent = "";
+  setStatus("Ваш хід");
+  updateColumns(state.valid_moves);
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function makeMove(col) {
+  if (busy || gameOver) return;
+  busy = true;
+  updateColumns([]);
+  setStatus("ШІ думає…");
+  try {
+    const res = await fetch("/api/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ column: col, depth: Number(depthEl.value) })
+    });
+    if (!res.ok) { busy = false; setStatus("Цей хід неможливий"); return; }
+    const state = await res.json();
+    for (const m of state.moves) {          
+      paintPiece(m.row, m.col, m.player, true);
+      if (m.player === HUMAN && state.moves.length > 1) await sleep(450);
+    }
+    statsEl.textContent = state.stats.nodes
+      ? `ШІ розглянув ${state.stats.nodes} позицій, відсікань: ${state.stats.prunes}` : "";
+    finish(state);
+  } catch (e) {
+    busy = false;
+    setStatus("Помилка зв'язку з сервером");
+  }
+}
+
+document.getElementById("new-game").addEventListener("click", newGame);
+document.addEventListener("keydown", e => {
+  if (e.key >= "1" && e.key <= "7") makeMove(Number(e.key) - 1);
+});
+
+buildBoard();
+newGame();
+</script>
+</body>
+</html>
