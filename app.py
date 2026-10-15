@@ -1,8 +1,3 @@
-"""
-Connect 4: людина проти ШІ (Minimax + Alpha-Beta Pruning).
-Лише стандартна бібліотека Python. Запуск:  python app.py
-Потім відкрийте http://localhost:8000
-"""
 import copy
 import json
 import math
